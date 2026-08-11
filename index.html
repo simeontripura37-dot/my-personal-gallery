@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simeon's Personal Gallery</title>
+    <!-- Include Supabase JS Library -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        :root {
+            --bg-color: #121212;
+            --card-color: #1e1e1e;
+            --text-color: #ffffff;
+            --accent-color: #3b82f6;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .hidden { display: none !important; }
+        
+        /* Login Box Styles */
+        .login-container {
+            background: var(--card-color);
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            margin-top: 100px;
+            width: 300px;
+            text-align: center;
+        }
+        input, button {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            border: 1px solid #333;
+            box-sizing: border-box;
+        }
+        input { background: #2a2a2a; color: white; }
+        button { background: var(--accent-color); color: white; border: none; cursor: pointer; font-weight: bold; }
+        button:hover { opacity: 0.9; }
+
+        /* Gallery Styles */
+        .gallery-container { width: 100%; max-width: 1200px; }
+        header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; padding-bottom: 20px; }
+        .upload-section { background: var(--card-color); padding: 20px; border-radius: 8px; margin: 20px 0; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 20px; margin-top: 20px; }
+        .item-card { background: var(--card-color); border-radius: 8px; overflow: hidden; padding: 10px; display: flex; flex-direction: column; justify-content: space-between; }
+        .item-card img, .item-card video { width: 100%; height: 200px; object-fit: cover; border-radius: 4px; }
+        .app-icon { height: 200px; display: flex; align-items: center; justify-content: center; background: #2a2a2a; font-size: 3rem; border-radius: 4px; cursor: pointer; }
+        .item-info { padding: 10px 0; font-size: 0.9rem; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; }
+        .actions { display: flex; gap: 5px; }
+        .btn-download { background: #10b981; }
+        .btn-delete { background: #ef4444; }
+    </style>
+</head>
+<body>
+
+    <!-- 1. USERNAME LOGIN SCREEN -->
+    <div id="login-screen" class="login-container">
+        <h2>Simeon's Personal Gallery</h2>
+        <p>Protected Access</p>
+        <input type="text" id="username" placeholder="Username" required autocomplete="off">
+        <input type="password" id="password" placeholder="Password" required>
+        <button onclick="login()">Login</button>
+        <p id="login-error" style="color: red; font-size: 0.8rem;"></p>
+    </div>
+
+    <!-- 2. GALLERY SCREEN -->
+    <div id="gallery-screen" class="gallery-container hidden">
+        <header>
+            <h1>Simeon's Personal Gallery</h1>
+            <button onclick="logout()" style="width: auto; background: #333;">Logout</button>
+        </header>
+
+        <div class="upload-section">
+            <input type="file" id="file-input" accept="image/*,video/*,.apk,.exe,.zip,*/*">
+            <button onclick="uploadFile()" style="width: auto;">Upload File</button>
+            <span id="upload-status"></span>
+        </div>
+
+        <div class="grid" id="gallery-grid"></div>
+    </div>
+
+    <script>
+        // Initialize Supabase (Replace with your actual keys)
+        const SUPABASE_URL = "https://pkpsinafeeixaozwvdjh.supabase.co";
+        const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBrcHNpbmFmZWVpeGFvend2ZGpoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY0MzMxMjYsImV4cCI6MjEwMjAwOTEyNn0.uL3WDHtpTO1xSNa-wc6pRqQ5syAIA0zf4PTMlCopeNQ";
+        const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        // Auto-login session tracking
+        window.onload = async () => {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session) {
+                showGallery();
+            }
+        };
+
+        // Login Logic
+        async function login() {
+            const usernameInput = document.getElementById('username').value.trim().toLowerCase();
+            const password = document.getElementById('password').value;
+            const errorDiv = document.getElementById('login-error');
+
+            // Secretly convert username to the internal format Supabase expects
+            const secretEmail = `${usernameInput}@gallery.internal`;
+
+            const { data, error } = await supabase.auth.signInWithPassword({ 
+                email: secretEmail, 
+                password: password 
+            });
+
+            if (error) {
+                errorDiv.innerText = "Invalid username or password.";
+            } else {
+                showGallery();
+            }
+        }
+
+        async function logout() {
+            await supabase.auth.signOut();
+            document.getElementById('login-screen').classList.remove('hidden');
+            document.getElementById('gallery-screen').classList.add('hidden');
+        }
+
+        function showGallery() {
+            document.getElementById('login-screen').classList.add('hidden');
+            document.getElementById('gallery-screen').classList.remove('hidden');
+            loadFiles();
+        }
+
+        // Upload Mechanics
+        async function uploadFile() {
+            const fileInput = document.getElementById('file-input');
+            const status = document.getElementById('upload-status');
+            if (!fileInput.files.length) return alert("Select a file first!");
+
+            const file = fileInput.files[0];
+            const fileName = `${Date.now()}_${file.name}`;
+            status.innerText = "Uploading...";
+
+            const { data, error } = await supabase.storage
+                .from('gallery-uploads')
+                .upload(fileName, file);
+
+            if (error) {
+                status.innerText = "Upload failed: " + error.message;
+            } else {
+                status.innerText = "Upload successful!";
+                fileInput.value = "";
+                loadFiles();
+            }
+        }
+
+        // Fetching Data Layout
+        async function loadFiles() {
+            const grid = document.getElementById('gallery-grid');
+            grid.innerHTML = "Loading gallery...";
+
+            const { data: files, error } = await supabase.storage
+                .from('gallery-uploads')
+                .list('', { sortBy: { column: 'created_at', order: 'desc' } });
+
+            if (error) {
+                grid.innerHTML = "Error loading files.";
+                return;
+            }
+
+            grid.innerHTML = "";
+            if(files.length === 0) grid.innerHTML = "<p>No files uploaded yet.</p>";
+
+            for (const file of files) {
+                if (file.name === '.emptyFolderPlaceholder') continue;
+
+                const { data: urlData } = await supabase.storage
+                    .from('gallery-uploads')
+                    .createSignedUrl(file.name, 604800); 
+
+                const fileUrl = urlData.signedUrl;
+                const isImage = /\.(jpeg|jpg|gif|png|webp)$/i.test(file.name);
+                const isVideo = /\.(mp4|webm|ogg|mov)$/i.test(file.name);
+
+                const card = document.createElement('div');
+                card.className = 'item-card';
+
+                let previewHTML = `<div class="app-icon" onclick="window.open('${fileUrl}', '_blank')">📦</div>`; 
+                if (isImage) {
+                    previewHTML = `<img src="${fileUrl}" alt="${file.name}" style="cursor:pointer;" onclick="window.open('${fileUrl}', '_blank')">`;
+                } else if (isVideo) {
+                    previewHTML = `<video src="${fileUrl}" controls></video>`;
+                }
+
+                // Clean timestamps off displayed name
+                const cleanName = file.name.split('_').slice(1).join('_');
+
+                card.innerHTML = `
+                    ${previewHTML}
+                    <div class="item-info" title="${file.name}">${cleanName}</div>
+                    <div class="actions">
+                        <button class="btn-download" onclick="window.open('${fileUrl}')">Download</button>
+                        <button class="btn-delete" onclick="deleteFile('${file.name}')">Delete</button>
+                    </div>
+                `;
+                grid.appendChild(card);
+            }
+        }
+
+        async function deleteFile(fileName) {
+            if (!confirm("Are you sure you want to delete this item?")) return;
+            const { error } = await supabase.storage.from('gallery-uploads').remove([fileName]);
+            if (error) alert("Error deleting file: " + error.message);
+            else loadFiles();
+        }
+    </script>
+</body>
+</html>
